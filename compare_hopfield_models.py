@@ -3,8 +3,11 @@ import numpy as np
 import matplotlib.pyplot as plt
 import json
 import pandas as pd
+import pickle
 from PIL import Image
 from config import CYRILLIC_LETTERS
+# Import the HopfieldNetwork class
+from hopfield_network import HopfieldNetwork
 
 
 def load_test_data(test_path="C:\\Neiro\\NeiroCirill1.1\\CyrillicTest", resize_shape=(28, 28)):
@@ -59,7 +62,7 @@ def load_test_data(test_path="C:\\Neiro\\NeiroCirill1.1\\CyrillicTest", resize_s
 
 
 def compare_models():
-    """Сравнение всех моделей Хопфилда"""
+    """Сравнение всех моделей Хопфилда без переобучения"""
     models_dir = "C:\\Neiro\\NeiroCirill1.1\\Models Hop"
     output_dir = "C:\\Neiro\\NeiroCirill1.1\\AllTest"
     os.makedirs(output_dir, exist_ok=True)
@@ -90,6 +93,8 @@ def compare_models():
     for model_name in model_dirs:
         model_path = os.path.join(models_dir, model_name)
         config_path = os.path.join(model_path, 'config.json')
+        model_file = os.path.join(model_path, 'hopfield_model.pkl')
+        pca_file = os.path.join(model_path, 'pca_model.pkl')
 
         # Пропуск, если файл конфигурации отсутствует
         if not os.path.exists(config_path):
@@ -108,35 +113,37 @@ def compare_models():
             print(f"Пропуск модели {model_name} - не является моделью Хопфилда")
             continue
 
-        # Извлечение параметров модели
-        neurons = config.get('neurons', 100)
-        activation = config.get('activation', 'step')
-
-        # Необходимость создания сети Хопфилда с сохраненными параметрами
-        from hopfield_network import HopfieldNetwork
-
-        # Проверка необходимости применения PCA
-        if neurons < X_test.shape[1]:
-            from sklearn.decomposition import PCA
-            print(f"Применение PCA для уменьшения размерности с {X_test.shape[1]} до {neurons}")
-            pca = PCA(n_components=neurons)
-            # Поскольку оригинальные обучающие данные недоступны,
-            # используем PCA для приблизительного уменьшения размерности
-            X_test_pca = pca.fit_transform(X_test)
-            # Бинаризация
-            X_test_pca = np.sign(X_test_pca)
-        else:
-            X_test_pca = X_test
-
-        # Создание сети Хопфилда с теми же параметрами
-        hopfield = HopfieldNetwork(X_test_pca.shape[1], activation=activation)
-
-        # Для сети Хопфилда обучение проводится на тестовых данных,
-        # так как оригинальные веса недоступны
         try:
-            hopfield.train(X_test_pca)
-            accuracy, _ = hopfield.evaluate(X_test_pca, y_test)
+            # Извлечение параметров модели
+            neurons = config.get('neurons', 100)
+            activation = config.get('activation', 'step')
+
+            # Загрузка сохраненной модели
+            if os.path.exists(model_file):
+                print(f"Загрузка сохраненной модели из {model_file}")
+                with open(model_file, 'rb') as f:
+                    hopfield = pickle.load(f)
+            else:
+                print(f"Сохраненная модель не найдена для {model_name}, пропуск...")
+                continue
+
+            # Применение PCA при необходимости
+            X_test_processed = X_test
+            if neurons < X_test.shape[1]:
+                if os.path.exists(pca_file):
+                    print(f"Загрузка сохраненной PCA модели из {pca_file}")
+                    with open(pca_file, 'rb') as f:
+                        pca = pickle.load(f)
+                    X_test_processed = pca.transform(X_test)
+                    X_test_processed = np.sign(X_test_processed)  # Бинаризация для сети Хопфилда
+                else:
+                    print(f"PCA модель не найдена для {model_name}, пропуск...")
+                    continue
+
+            # Оценка модели на тестовых данных без переобучения
+            accuracy, _ = hopfield.evaluate(X_test_processed, y_test)
             print(f"Точность на тестовых данных: {accuracy:.4f}")
+
         except Exception as e:
             print(f"Ошибка при оценке модели {model_name}: {str(e)}")
             continue
@@ -184,45 +191,50 @@ def compare_models():
     print(f"График сохранен в {plot_path}")
 
     # Создание графика зависимости точности от количества нейронов и активации
-    plt.figure(figsize=(12, 6))
+    if len(results) > 0:  # Проверка наличия результатов
+        plt.figure(figsize=(12, 6))
 
-    # Группировка по количеству нейронов и активации
-    grouped = results.groupby(['Нейроны', 'Активация'])['Точность'].mean().reset_index()
+        # Группировка по количеству нейронов и активации
+        grouped = results.groupby(['Нейроны', 'Активация'])['Точность'].mean().reset_index()
 
-    # Создание позиций для группированных столбцов
-    neurons_unique = sorted(grouped['Нейроны'].unique())
-    act_unique = sorted(grouped['Активация'].unique())
+        # Создание позиций для группированных столбцов
+        neurons_unique = sorted(grouped['Нейроны'].unique())
+        act_unique = sorted(grouped['Активация'].unique())
 
-    width = 0.2
-    x = np.arange(len(neurons_unique))
+        width = 0.2
+        x = np.arange(len(neurons_unique))
 
-    # Построение группированных столбцов
-    for i, act in enumerate(act_unique):
-        act_data = grouped[grouped['Активация'] == act]
-        heights = [act_data[act_data['Нейроны'] == n]['Точность'].values[0]
-                   if n in act_data['Нейроны'].values else 0
-                   for n in neurons_unique]
-        plt.bar(x + i * width - width * (len(act_unique) - 1) / 2,
-                heights, width, label=act)
+        # Построение группированных столбцов
+        for i, act in enumerate(act_unique):
+            act_data = grouped[grouped['Активация'] == act]
+            heights = [act_data[act_data['Нейроны'] == n]['Точность'].values[0]
+                       if n in act_data['Нейроны'].values else 0
+                       for n in neurons_unique]
+            plt.bar(x + i * width - width * (len(act_unique) - 1) / 2,
+                    heights, width, label=act)
 
-    plt.xlabel('Количество нейронов')
-    plt.ylabel('Средняя точность')
-    plt.title('Производительность сети Хопфилда в зависимости от нейронов и активации')
-    plt.xticks(x, neurons_unique)
-    plt.legend()
-    plt.ylim(0, 1)
-    plt.tight_layout()
+        plt.xlabel('Количество нейронов')
+        plt.ylabel('Средняя точность')
+        plt.title('Производительность сети Хопфилда в зависимости от нейронов и активации')
+        plt.xticks(x, neurons_unique)
+        plt.legend()
+        plt.ylim(0, 1)
+        plt.tight_layout()
 
-    # Сохранение графика
-    plot_path = os.path.join(output_dir, 'hopfield_performance_by_parameters.png')
-    plt.savefig(plot_path)
-    plt.close()
-    print(f"График анализа параметров сохранен в {plot_path}")
+        # Сохранение графика
+        plot_path = os.path.join(output_dir, 'hopfield_performance_by_parameters.png')
+        plt.savefig(plot_path)
+        plt.close()
+        print(f"График анализа параметров сохранен в {plot_path}")
 
-    # Вывод итогов
-    print("\nИтоги:")
-    print(f"Лучшая модель: {results.iloc[0]['Модель']} с точностью {results.iloc[0]['Точность']:.4f}")
-    print(f"Худшая модель: {results.iloc[-1]['Модель']} с точностью {results.iloc[-1]['Точность']:.4f}")
+        # Вывод итогов
+        print("\nИтоги:")
+        if len(results) > 0:
+            print(f"Лучшая модель: {results.iloc[0]['Модель']} с точностью {results.iloc[0]['Точность']:.4f}")
+            if len(results) > 1:
+                print(f"Худшая модель: {results.iloc[-1]['Модель']} с точностью {results.iloc[-1]['Точность']:.4f}")
+        else:
+            print("Нет доступных результатов для анализа")
 
     return results
 

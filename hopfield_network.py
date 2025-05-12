@@ -1,16 +1,17 @@
 import os
 import numpy as np
 import matplotlib.pyplot as plt
-from PIL import Image
 import time
+import pickle
+from PIL import Image
 from config import CYRILLIC_PATH, CYRILLIC_LETTERS
 from utils import plot_training_history
 
 # Параметры по умолчанию
-DEFAULT_NEURONS = 512  # Количество нейронов
+DEFAULT_NEURONS = 128  # Количество нейронов
 DEFAULT_EPOCHS = 50  # Количество эпох
-DEFAULT_ACTIVATION = "tanh"  # Варианты активации: "step", "sigmoid", "tanh"
-DEFAULT_NAME = "Hopfield_512_tanh"  # Имя модели по умолчанию
+DEFAULT_ACTIVATION = "step"  # Варианты активации: "step", "sigmoid", "tanh"
+DEFAULT_NAME = "Hopfield_128_step"  # Имя модели по умолчанию
 
 
 def load_dataset(resize_shape=(28, 28)):
@@ -161,6 +162,20 @@ class HopfieldNetwork:
         accuracy = float(correct) / len(test_patterns) if len(test_patterns) > 0 else 0
         return accuracy, results
 
+    def save(self, filepath):
+        """Сохранение модели в файл"""
+        with open(filepath, 'wb') as f:
+            pickle.dump(self, f)
+        print(f"Модель сохранена в {filepath}")
+
+    @classmethod
+    def load(cls, filepath):
+        """Загрузка модели из файла"""
+        with open(filepath, 'rb') as f:
+            model = pickle.load(f)
+        print(f"Модель загружена из {filepath}")
+        return model
+
 
 def main():
     # Настраиваемые параметры
@@ -206,9 +221,16 @@ def main():
         # Бинаризация результатов PCA для сети Хопфилда
         X_train_pca = np.sign(X_train_pca)
         X_val_pca = np.sign(X_val_pca)
+
+        # Сохранение PCA модели для дальнейшего использования
+        pca_path = os.path.join(models_dir, "pca_model.pkl")
+        with open(pca_path, 'wb') as f:
+            pickle.dump(pca, f)
+        print(f"PCA модель сохранена в {pca_path}")
     else:
         X_train_pca = X_train
         X_val_pca = X_val
+        pca = None
 
     # Создание и обучение сети Хопфилда
     hopfield = HopfieldNetwork(X_train_pca.shape[1], activation=activation)
@@ -226,6 +248,10 @@ def main():
     # Оценка на валидационной выборке
     val_accuracy, _ = hopfield.evaluate(X_val_pca, y_val)
     print(f"Точность на валидационной выборке: {val_accuracy:.4f}")
+
+    # Сохранение модели Хопфилда
+    model_path = os.path.join(models_dir, "hopfield_model.pkl")
+    hopfield.save(model_path)
 
     # Создание имитации истории обучения для построения графика
     class MockHistory:

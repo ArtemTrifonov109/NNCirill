@@ -2,16 +2,17 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 import time
+import pickle
 from PIL import Image
 from config import CYRILLIC_PATH, CYRILLIC_LETTERS
 from utils import plot_training_history
 
 # Параметры по умолчанию
-DEFAULT_GRID_SIZE = 20  # Размер карты Кохонена
-DEFAULT_EPOCHS = 10
-DEFAULT_LEARNING_RATE = 1.5
-DEFAULT_ACTIVATION = "linear"  # Варианты: "linear", "sigmoid", "tanh", "relu"
-DEFAULT_NAME = "Kohonen_20_15_linear"  # Имя модели по умолчанию
+DEFAULT_GRID_SIZE = 5  # Размер карты Кохонена
+DEFAULT_EPOCHS = 50
+DEFAULT_LEARNING_RATE = 0.8 # Начальная скорость обучения
+DEFAULT_ACTIVATION = "sigmoid"  # Варианты: "linear", "sigmoid", "tanh", "relu"
+DEFAULT_NAME = "Kohonen_5_sigmoid"  # Имя модели
 
 
 def load_dataset(resize_shape=(28, 28)):
@@ -219,6 +220,43 @@ class KohonenNetwork:
         accuracy = float(correct) / len(test_patterns) if len(test_patterns) > 0 else 0
         return accuracy, results
 
+    def save(self, filepath):
+        """Сохранение модели в файл"""
+        with open(filepath, 'wb') as f:
+            pickle.dump(self, f)
+        print(f"Модель сохранена в {filepath}")
+
+    @classmethod
+    def load(cls, filepath):
+        """Загрузка модели из файла"""
+        with open(filepath, 'rb') as f:
+            model = pickle.load(f)
+        print(f"Модель загружена из {filepath}")
+        return model
+
+def visualize_kohonen_map(kohonen, cyrillic_letters, models_dir):
+    """Визуализация карты Кохонена с буквами кириллицы"""
+    fig, ax = plt.subplots(figsize=(10, 10))
+    ax.set_title("Карта Кохонена с буквами кириллицы")
+    ax.set_xticks(np.arange(kohonen.grid_size))
+    ax.set_yticks(np.arange(kohonen.grid_size))
+    ax.set_xticklabels([])
+    ax.set_yticklabels([])
+    ax.grid(True)
+
+    # Проходим по всем нейронам карты
+    for i in range(kohonen.grid_size):
+        for j in range(kohonen.grid_size):
+            class_idx = kohonen.neuron_class_map[i, j]
+            if class_idx != -1:  # Если нейрон сопоставлен с классом
+                letter = cyrillic_letters[class_idx]
+                ax.text(j, i, letter, ha='center', va='center', fontsize=12)
+            else:  # Если нейрон не сопоставлен (пустой)
+                ax.text(j, i, ' ', ha='center', va='center', fontsize=12)
+
+    # Сохранение карты
+    plt.savefig(os.path.join(models_dir, "kohonen_map_letters.png"))
+    plt.close()
 
 def main():
     # Настраиваемые параметры
@@ -273,6 +311,10 @@ def main():
     val_accuracy, _ = kohonen.evaluate(X_val, y_val)
     print(f"Точность на валидационной выборке: {val_accuracy:.4f}")
 
+    # Сохранение модели Кохонена
+    model_path = os.path.join(models_dir, "kohonen_model.pkl")
+    kohonen.save(model_path)
+
     # Создание истории обучения для построения графика
     class History:
         def __init__(self, train_acc, val_acc, train_errors):
@@ -291,14 +333,7 @@ def main():
     plot_training_history(history, models_dir)
 
     # Визуализация карты Кохонена
-    plt.figure(figsize=(10, 10))
-    plt.title("Распределение классов на карте Кохонена")
-    plt.imshow(kohonen.neuron_class_map, cmap='viridis')
-    plt.colorbar(label='Индекс класса')
-    plt.xlabel("Ось X сетки")
-    plt.ylabel("Ось Y сетки")
-    plt.savefig(os.path.join(models_dir, "kohonen_map.png"))
-    plt.close()
+    visualize_kohonen_map(kohonen, CYRILLIC_LETTERS, models_dir)
 
     # Сохранение конфигурации модели
     config = {
@@ -317,7 +352,6 @@ def main():
         json.dump(config, f, indent=4)
 
     print(f"Модель сохранена в {models_dir}")
-    print("Готово!")
 
 
 if __name__ == "__main__":
